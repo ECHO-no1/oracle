@@ -10,7 +10,7 @@
 
 ##### 实验内容：对Oracle12c中的HR人力资源管理系统中的表进行查询与分析。
 
-##### 首先运行和分析教材中的样例：Oracle有一个开发者角色resource，可以创建表、过程、触发器等对象，但是不能创建视图。本训练要求：
+#### 首先运行和分析教材中的样例：Oracle有一个开发者角色resource，可以创建表、过程、触发器等对象，但是不能创建视图。本训练要求：
 
 - 在pdborcl插接式数据中创建一个新的本地角色 con_res_view ，该角色包含connect和resource角色，同时也包含CREATE VIEW权限，这样任何拥有echo的用户就同时拥有这三种权限。
 
@@ -85,3 +85,33 @@
 
 4. #####  测试一下同学用户之间的表的共享，只读共享和读写共享都测试一下。 
 
+   ![](同学测试.png)
+
+### 数据库和表空间占用分析
+
+> 当全班同学的实验都做完之后，数据库pdborcl中包含了每个同学的角色和用户。 所有同学的用户都使用表空间users存储表的数据。 表空间中存储了很多相同名称的表mytable和视图myview，但分别属性于不同的用户，不会引起混淆。 随着用户往表中插入数据，表空间的磁盘使用量会增加。
+
+### 查看数据库的使用情况
+
+```
+$ sqlplus system/123@pdborcl
+
+SQL>SELECT tablespace_name,FILE_NAME,BYTES/1024/1024 MB,MAXBYTES/1024/1024 MAX_MB,autoextensible FROM dba_data_files  WHERE  tablespace_name='USERS';
+
+SQL>SELECT a.tablespace_name "表空间名",Total/1024/1024 "大小MB",
+ free/1024/1024 "剩余MB",( total - free )/1024/1024 "使用MB",
+ Round(( total - free )/ total,4)* 100 "使用率%"
+ from (SELECT tablespace_name,Sum(bytes)free
+        FROM   dba_free_space group  BY tablespace_name)a,
+       (SELECT tablespace_name,Sum(bytes)total FROM dba_data_files
+        group  BY tablespace_name)b
+ where  a.tablespace_name = b.tablespace_name;
+```
+
+![](数据库使用情况.png)
+
+- autoextensible是显示表空间中的数据文件是否自动增加。
+
+- MAX_MB是指数据文件的最大容量。
+
+  
