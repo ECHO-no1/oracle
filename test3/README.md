@@ -1,4 +1,4 @@
-## test2
+# test3：创建分区表
 
 ##### 姓名：覃龙
 
@@ -6,112 +6,224 @@
 
 ##### 班级：2018级软件工程1班
 
-##### 实验目的： 掌握用户管理、角色管理、权根维护与分配的能力，掌握用户之间共享对象的操作技能。 
+## 实验目的
 
-##### 实验内容：对Oracle12c中的HR人力资源管理系统中的表进行查询与分析。
+#####  掌握分区表的创建方法，掌握各种分区方式的使用场景。 
 
-#### 首先运行和分析教材中的样例：Oracle有一个开发者角色resource，可以创建表、过程、触发器等对象，但是不能创建视图。本训练要求：
+## 实验内容
 
-- 在pdborcl插接式数据中创建一个新的本地角色 con_res_view ，该角色包含connect和resource角色，同时也包含CREATE VIEW权限，这样任何拥有echo的用户就同时拥有这三种权限。
+- ##### 本实验使用3个表空间：USERS,USERS02,USERS03。在表空间中创建两张表：订单表(orders)与订单详表(order_details)。
 
-- 创建角色之后，再创建用户new_user，给用户分配表空间，设置限额为50M，授予echo角色。
+- ##### 使用你自己的账号创建本实验的表，表创建在上述3个分区，自定义分区策略。你需要使用system用户给你自己的账号分配上述分区的使用权限。
 
-- 最后测试：用新用户new_user连接数据库、创建表，插入数据，创建视图，查询表和视图的数据。
+- ##### 你需要使用system用户给你的用户分配可以查询执行计划的权限。
 
-  
+- ##### 表创建成功后，插入数据，数据能并平均分布到各个分区。每个表的数据都应该大于1万行，对表进行联合查询。写出插入数据的语句和查询数据的语句，并分析语句的执行计划。
 
-1. #####  以system登录到pdborcl，创建角色echo和用户echo_no1，并授权和分配空间： 
+- ##### 进行分区与不分区的对比实验。
 
-   ```sql
-   $ sqlplus system/123@pdborcl
-   SQL> CREATE ROLE echo;
-   Role created.
-   SQL> GRANT connect,resource,CREATE VIEW TO echo;
-   Grant succeeded.
-   SQL> CREATE USER echo_no1 IDENTIFIED BY 123 DEFAULT TABLESPACE users TEMPORARY TABLESPACE temp;
-   User created.
-   SQL> ALTER USER echo_no1 QUOTA 50M ON users;
-   User altered.
-   SQL> GRANT echo TO echo_no1;
-   Grant succeeded.
-   SQL> exit
-   ```
+  ## 实验步骤
 
-   ![](创建角色与用户.png)
+1. #####   在主表orders和从表order_details之间建立引用分区 在study用户中创建两个表：orders（订单表）和order_details（订单详表），两个表通过列order_id建立主外键关联。orders表按范围分区进行存储，order_details使用引用分区进行存储。 创建orders表的部分语句是： 
 
-2. #####  新用户echo_no1连接到pdborcl，创建表mytable和视图myview，插入数据，最后将myview的SELECT对象权限授予hr用户。 
-
-   ```sql
-   $ sqlplus echo_no1/123@pdborcl
-   SQL> show user;
-   USER is "echo_no1"
-   SQL> CREATE TABLE mytable (id number,name varchar(50));
-   Table created.
-   SQL> INSERT INTO mytable(id,name)VALUES(1,'zhang');
-   1 row created.
-   SQL> INSERT INTO mytable(id,name)VALUES (2,'wang');
-   1 row created.
-   SQL> CREATE VIEW myview AS SELECT name FROM mytable;
-   View created.
-   SQL> SELECT * FROM myview;
-   NAME
-   --------------------------------------------------
-   zhang
-   wang
-   SQL> GRANT SELECT ON myview TO hr;
-   Grant succeeded.
-   SQL>exit
-   ```
-
-   ![](插入数据.png)
+   在用户echo_no1中创建表：orders（订单表）
+   
+  ```sql
+   SQL>CREATE TABLESPACE users02 DATAFILE
+   '/home/student/你的目录/pdbtest_users02_1.dbf'
+     SIZE 100M AUTOEXTEND ON NEXT 50M MAXSIZE UNLIMITED，
+   '/home/student/你的目录/pdbtest_users02_2.dbf' 
+     SIZE 100M AUTOEXTEND ON NEXT 50M MAXSIZE UNLIMITED
+   EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO;
+   
+   SQL>CREATE TABLESPACE users03 DATAFILE
+   '/home/student/你的目录/pdbtest_users02_1.dbf'
+     SIZE 100M AUTOEXTEND ON NEXT 50M MAXSIZE UNLIMITED，
+   '/home/student/你的目录/pdbtest_users02_2.dbf' 
+     SIZE 100M AUTOEXTEND ON NEXT 50M MAXSIZE UNLIMITED
+   EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO;
+   
+   SQL> 
+   
+   CREATE TABLE orders 
+   (
+    order_id NUMBER(10, 0) NOT NULL 
+    , customer_name VARCHAR2(40 BYTE) NOT NULL 
+    , customer_tel VARCHAR2(40 BYTE) NOT NULL 
+    , order_date DATE NOT NULL 
+    , employee_id NUMBER(6, 0) NOT NULL 
+    , discount NUMBER(8, 2) DEFAULT 0 
+    , trade_receivable NUMBER(8, 2) DEFAULT 0 
+    , CONSTRAINT ORDERS_PK PRIMARY KEY 
+     (
+       ORDER_ID 
+     )
+   ) 
+   TABLESPACE USERS 
+   PCTFREE 10 INITRANS 1 
+   STORAGE (   BUFFER_POOL DEFAULT ) 
+   NOCOMPRESS NOPARALLEL 
+   
+   PARTITION BY RANGE (order_date) 
+   (
+    PARTITION PARTITION_BEFORE_2016 VALUES LESS THAN (
+ TO_DATE(' 2016-01-01 00:00:00', 'SYYYY-MM-DD HH24:MI:SS', 
+    'NLS_CALENDAR=GREGORIAN')) 
+ NOLOGGING
+    TABLESPACE USERS
+    PCTFREE 10 
+    INITRANS 1 
+    STORAGE 
+   ( 
+    INITIAL 8388608 
+    NEXT 1048576 
+    MINEXTENTS 1 
+    MAXEXTENTS UNLIMITED 
+    BUFFER_POOL DEFAULT 
+   ) 
+   NOCOMPRESS NO INMEMORY  
+   , PARTITION PARTITION_BEFORE_2020 VALUES LESS THAN (
+   TO_DATE(' 2020-01-01 00:00:00', 'SYYYY-MM-DD HH24:MI:SS', 
+   'NLS_CALENDAR=GREGORIAN')) 
+   NOLOGGING 
+   TABLESPACE USERS
+   , PARTITION PARTITION_BEFORE_2021 VALUES LESS THAN (
+   TO_DATE(' 2021-01-01 00:00:00', 'SYYYY-MM-DD HH24:MI:SS', 
+   'NLS_CALENDAR=GREGORIAN')) 
+   NOLOGGING 
+   TABLESPACE USERS02
+   );
+   --以后再逐年增加新年份的分区
+   ALTER TABLE orders ADD PARTITION partition_before_2022
+   VALUES LESS THAN(TO_DATE('2022-01-01','YYYY-MM-DD'))
+   TABLESPACE USERS03;
+  ```
 
    
 
-3. #####  用户hr连接到pdborcl，查询echo_no1授予它的视图myview 
+   ###### 创建order_details表的部分语句如下：
 
    ```sql
-   $ sqlplus hr/123@pdborcl
-   SQL> SELECT * FROM echo_no1.myview;
-   NAME
-   --------------------------------------------------
-   zhang
-   wang
-   SQL> exit
+CREATE TABLE order_details
+   (
+id NUMBER(10, 0) NOT NULL
+   , order_id NUMBER(10, 0) NOT NULL
+, product_name VARCHAR2(40 BYTE) NOT NULL
+   , product_num NUMBER(8, 2) NOT NULL
+, product_price NUMBER(8, 2) NOT NULL
+   , CONSTRAINT order_details_fk1 FOREIGN KEY  (order_id)
+   REFERENCES orders  (  order_id   )
+   ENABLE
+   )
+   TABLESPACE USERS
+   PCTFREE 10 INITRANS 1
+   STORAGE (BUFFER_POOL DEFAULT )
+   NOCOMPRESS NOPARALLEL
+   PARTITION BY REFERENCE (order_details_fk1);
    ```
-
-   ![](连接pdborcl.png)
 
    
 
-4. #####  测试一下同学用户之间的表的共享，只读共享和读写共享都测试一下。 
+   #### 建表完成后
 
-   ![](同学测试.png)
+![](3-1.png)
 
-### 数据库和表空间占用分析
+   #### 以system用户修改echo_no1用户的权限
 
-> 当全班同学的实验都做完之后，数据库pdborcl中包含了每个同学的角色和用户。 所有同学的用户都使用表空间users存储表的数据。 表空间中存储了很多相同名称的表mytable和视图myview，但分别属性于不同的用户，不会引起混淆。 随着用户往表中插入数据，表空间的磁盘使用量会增加。
+ ![](3-2.png)
 
-### 查看数据库的使用情况
+   ##### 执行计划分析：
 
-```sql
-$ sqlplus system/123@pdborcl
+![](3-3.png)
 
-SQL>SELECT tablespace_name,FILE_NAME,BYTES/1024/1024 MB,MAXBYTES/1024/1024 MAX_MB,autoextensible FROM dba_data_files  WHERE  tablespace_name='USERS';
+![](3-4.png)
 
-SQL>SELECT a.tablespace_name "表空间名",Total/1024/1024 "大小MB",
- free/1024/1024 "剩余MB",( total - free )/1024/1024 "使用MB",
- Round(( total - free )/ total,4)* 100 "使用率%"
- from (SELECT tablespace_name,Sum(bytes)free
-        FROM   dba_free_space group  BY tablespace_name)a,
-       (SELECT tablespace_name,Sum(bytes)total FROM dba_data_files
-        group  BY tablespace_name)b
- where  a.tablespace_name = b.tablespace_name;
-```
+   #### 以用户sys创建无分区表
 
-![](数据库使用情况.png)
+   ```sql
+   CREATE TABLE ORDERS_NOSPACE 
+   (
+     ORDER_ID NUMBER(10, 0) NOT NULL 
+   , CUSTOMER_NAME VARCHAR2(40 BYTE) NOT NULL 
+   , CUSTOMER_TEL VARCHAR2(40 BYTE) NOT NULL 
+   , ORDER_DATE DATE NOT NULL 
+   , EMPLOYEE_ID NUMBER(6, 0) DEFAULT 0 
+   , DISCOUNT NUMBER(8, 2) DEFAULT 0 
+   , CONSTRAINT ORDERS_ID_ORDERS_DETAILS PRIMARY KEY 
+     (
+       ORDER_ID 
+     )
+     USING INDEX 
+     (
+         CREATE UNIQUE INDEX ORDERS_ID_ORDERS_DETAILS ON     ORDERS_NOSPACE (ORDER_ID ASC) 
+         LOGGING 
+         TABLESPACE USERS 
+         PCTFREE 10 
+         INITRANS 2 
+         STORAGE 
+         ( 
+           BUFFER_POOL DEFAULT 
+         ) 
+         NOPARALLEL 
+     )
+     ENABLE 
+   ) 
+   LOGGING 
+   TABLESPACE USERS 
+   PCTFREE 10 
+   INITRANS 1 
+   STORAGE 
+   ( 
+     BUFFER_POOL DEFAULT 
+   ) 
+   NOCOMPRESS 
+   NO INMEMORY 
+   NOPARALLEL;
+   
+   #建立orders_details_nospace表
+   CREATE TABLE ORDER_DETAILS_NOSPACE 
+   (
+     ID NUMBER(10, 0) NOT NULL 
+   , ORDER_ID NUMBER(10, 0) NOT NULL 
+   , PRODUCT_NAME VARCHAR2(40 BYTE) NOT NULL 
+   , PRODUCT_NUM NUMBER(8, 2) NOT NULL 
+   , PRODUCT_PRICE NUMBER(8, 2) NOT NULL 
+   ) 
+   LOGGING 
+   TABLESPACE USERS 
+   PCTFREE 10 
+   INITRANS 1 
+   STORAGE 
+   ( 
+     INITIAL 65536 
+     NEXT 1048576 
+     MINEXTENTS 1 
+     MAXEXTENTS UNLIMITED 
+     BUFFER_POOL DEFAULT 
+   ) 
+   NOCOMPRESS 
+   NO INMEMORY 
+   NOPARALLEL;
+   
+   ALTER TABLE ORDER_DETAILS_NOSPACE
+   ADD CONSTRAINT ORDERS_FOREIGN_ORDERS_DETAILS FOREIGN KEY
+   (
+     ORDER_ID 
+   )
+   REFERENCES ORDERS_NOSPACE
+   (
+     ORDER_ID 
+   )
+   ENABLE;
+   ```
 
-- autoextensible是显示表空间中的数据文件是否自动增加。
+![](3-5.png)
 
-- MAX_MB是指数据文件的最大容量。
+   #### 对无分区表执行计划分析
 
-  
+![](3-6.png)
+
+   #### 实验总结
+
+   ##### 结论：在分区表里查询数据，同一个分区查找明显比不同分区查找快、有分区比无分区查找数据优势更大，且分区表在数据量大时进行查找的优势比较大，数据小时有无分区的差别不大。
+
