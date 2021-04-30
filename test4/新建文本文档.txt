@@ -1,0 +1,767 @@
+// ==UserScript==
+// @name         冲
+// @namespace    https://huqzc.github.io/
+// @version      1.5.5
+// @description  1.动植物直接识别，一键识别并自动复制到剪贴板 2.转正通过后直接格式化转正答案，分享更方便 3.直接获取转正答案，不需再辛苦翻图片对题目找答案 4.积分记录功能，清楚知道自己积分是怎么变化的 5.按键骑士 6.扫雷
+// @require      https://greasyfork.org/scripts/410220-%E8%A7%A3%E5%AF%86/code/%E8%A7%A3%E5%AF%86.js?version=842966
+// @author       huqz
+// @match        https://new-qishi.sm.cn/*
+// @connect      39.97.236.184
+// @connect      127.0.0.1
+// @grant        GM_addValueChangeListener
+// @grant        GM_getValue
+// @grant        GM_listValues
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setClipboard
+// ==/UserScript==
+
+(function () {
+    'use strict';
+    const setting = {
+        time: 1E4    // 时间间隔
+        , type: 0    // 动植物ocr
+        , detail: 1  // 题目详情
+        , official: 0 // 正式
+        , turn: 0    // 转正
+        , profile: 0 // 积分详情
+        , stop: 0
+    };
+
+    const req = {
+        baidu: 'ÖnçsĲ¾ĊķÄò¸¥v«|ûĶÍćÙüĬËÙpĔ°÷oÍjĶÇĵÈ·ę¸âyÔpùõĀ'
+        , info: 'ċ£ærĀätÝ£æ·Ð¡È¶}õÇñ¸²{qÔ¢Áâ¬ê¼Ô£dªv±ħ´Ĉ±èÔoĦ²ÿ®įºýę¦Ĳ¾ç~árĜ®ý´ĀăÕf'
+        , turn: 'ä|ĮºĠ¬ú fÒ£³¸ÄõÇâ©»îÀº«xÔÀ¦u¶~fá²į¼Óf®ĞªđĦ´ē¥ÛĀę¦ØoċÕlĮ¿ğ±'
+        , check: 'ąØdı½ü»÷È q¬yÃÓ¥Ïå®¹í»óÀì¶å·­|ï·Ä¡rÜiîÚ«çsě¶ħºĞ®'
+    };
+
+    const type = {
+        1: 'plant'
+        , 2: 'animal'
+        , 3: 'https://aip.baidubce.com/rest/2.0/ocr/v1/webimage'
+    };
+
+    setTimeout(() => {
+        valve()
+        document.body.onclick = function(e) {
+            if ((e.target.nodeName === "BUTTON" && e.target.innerText.indexOf('任务') >= 0) || e.target.nodeName === "A") {
+                console.log('路由变化');
+                setTimeout(() => {
+                    valve();
+                }, 500)
+            }
+        }
+
+        var flag = document.createElement('div')
+        flag.className = 'script-is-running'
+        flag.setAttribute('style', 'display: none')
+        document.body.appendChild(flag)
+    }, 2000)
+
+    function user_profile() {
+
+        setTimeout(() => {
+            var member = $('.member');
+            if (member.children[1].innerText.indexOf('上次积分') >= 0) return ;
+            var cur_score = member.children[1].innerText.replace(/[^0-9]/ig, '');
+            var date = new Date();
+            var cur_info = {
+                score: cur_score,
+                preScore: '暂无信息',
+                lack: 0,
+                firstSight: date.getFullYear() + '/' + (date.getMonth()+1) + '/' + date.getDate() + ' ' + date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds(),
+                howIn: '待补全',
+                howOut: '待补全',
+            }
+            var score_list = GM_getValue('score_list');
+            if (!score_list) {
+                var sl = [];
+                sl.push(cur_info);
+                GM_setValue('score_list', sl);
+            }else {
+                cur_info.preScore = score_list[score_list.length-1].score;
+                cur_info.lack = parseInt(cur_info.score) - parseInt(cur_info.preScore);
+                if (cur_info.lack !== 0) {
+                    score_list.push(cur_info);
+                    GM_setValue('score_list', score_list);
+                }else {
+                    cur_info = score_list[score_list.length-1]
+                }
+            }
+            var p = document.createElement('p')
+            p.innerHTML = `上次积分：${cur_info.preScore}
+<pre style="display: inline;cursor:pointer">   (${cur_info.lack > 0 ? '+'+cur_info.lack : (cur_info.lack === 0) ? '' : cur_info.lack})</pre>`
+      p.onclick = function() {
+          board(GM_getValue('score_list'));
+      }
+      insert_after(p, member.children[0]);
+        }, 500)
+
+        function board(data) {
+            var div = document.createElement('div');
+            div.classname = 'user score box'
+            div.setAttribute('style', 'width: 500px;height: 800px;background: #eaeef4;-webkit-box-align: center;align-items: center;position: fixed;left: 37%;top: 5%;box-shadow: 0px 0px 10px 5px;transition: all 2s ease-out;')
+            div.ondblclick = function () {
+                div.remove();
+            }
+
+            var text = '';
+            for (let i in data) {
+                text += `<tr id="data-bind-index-${i}"><td>${parseInt(i) + 1}</td>
+              <td style="overflow: hidden;text-overflow: ellipsis;white-space: nowrap;" title="${data[i].firstSight}">${data[i].firstSight}</td>
+              <td style="overflow: hidden;text-overflow: ellipsis;white-space: nowrap;">${data[i].score}</td>
+              <td style="overflow: hidden;text-overflow: ellipsis;white-space: nowrap;">${data[i].lack > 0 ? '+'+data[i].lack : data[i].lack}</td>
+              <td style="overflow: hidden;text-overflow: ellipsis;white-space: nowrap;" class="in" title="${data[i].howIn}">${data[i].howIn}</td>
+              <td style="overflow: hidden;text-overflow: ellipsis;white-space: nowrap;" class="out" title="${data[i].howOut}">${data[i].howOut}</td></tr>`
+      }
+        div.innerHTML = `<div class="title" style="text-align: center;"><h1>积分详情</h1></div>
+      <div class="content">
+        <table style="width: 100%;table-layout: fixed" border="1" id="data-table">
+          <thead>
+            <tr>
+              <th style="width: 45px">序号</th>
+              <th style="width: 160px">时间</th>
+              <th>积分</th>
+              <th>距上次</th>
+              <th>获得途径</th>
+              <th>使用途径</th>
+            </tr>
+          </thead>
+          <tbody>
+          ${text}
+</tbody>
+        </table>
+      </div>
+      <div style="position: absolute;bottom: 0px;width: 100%;">⊙双击本页面关闭 | 点击相应途径可更改详情 | 鼠标悬停查看完整本文  </div>`
+
+      var area = $('.user-area')
+      insert_after(div, area.children[1])
+
+        $('#data-table').onclick = function (e) {
+            if (e.target.nodeName === 'TD' && e.target.className !== '') {
+                var index = e.path[1].id.replace(/[^0-9]/ig, '');
+                var io = e.target.className;
+                var str = prompt(`${io === 'in' ? '记录获得途径' : io === 'out' ? '记录使用途径' : '发生错误，请刷新页面哦'}`)
+                if (str && str.trim()) {
+                    io === 'in' ? data[index].howIn = str : io === 'out' ? data[index].howOut = str : e.target.innerText = '待补全';
+                    io === 'in' ? e.target.innerText = str : io === 'out' ? e.target.innerText = str : e.target.innerText = '待补全';
+                    io === 'in' ? e.target.title = str : io === 'out' ? e.target.title = str : e.target.title = '待补全';
+                }
+                GM_setValue('score_list', data)
+            }
+
+        }
+    }
+
+  }
+
+    function turn_position() {
+
+        var answer_list = []
+
+        setTimeout(() => {
+            var title = $('h2').innerText;
+            setting.type = (title.indexOf('植物') > 0) ? 1 : setting.type;
+            setting.type = (title.indexOf('动物') > 0) ? 2 : setting.type;
+            setting.type = (title.indexOf('ocr') > 0) ? 3 : setting.type;
+
+            bind(q_info, accumulate)
+            setting.detail && own_get();
+            setting.type && baidu();
+        }, 1000)
+
+
+        function q_info() {
+            return {
+                url: req.turn,
+                params: {
+                    taskId: location.search.replace(/[^0-9]/ig, ""),
+                    taskName: $('h2').innerText,
+                    questionKey: $('form').children[0].innerText.replace(/[^0-9]/ig, "")
+                }
+            }
+        }
+
+        function accumulate(data) {
+            answer_list.push(data)
+            console.log('录入答案数目：', answer_list.length);
+            if (answer_list.length === 15) {
+                pass(dest, {
+                    url: req.turn,
+                    params: {
+                        data: answer_list
+                    }
+                });
+            }
+        }
+
+        function dest(data) {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: filter(data.url),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Referer': GM_info['script']['version']
+                },
+                data: JSON.stringify(data.params),
+                onload: function (resp) {
+                    var js = JSON.parse(resp.responseText)
+                    if (js['code'] === 1000) {
+                        console.log('上传成功');
+                    } else {
+                        console.log('上传失败，错误码：' + js['code'] + '\n' + data.params)
+                        error_info('上传失败！')
+                    }
+                },
+                onerror: function () {
+                    error_info('上传失败！')
+                }
+            });
+        }
+
+        function pass(func, data) {
+            var cnt = 0;
+            var itv = setInterval(() => {
+                if (cnt > 15) {
+                    clearInterval(itv);
+                    console.log('failed');
+                    return false;
+                }
+                if ($('.ant-modal-body').innerText.indexOf('已通过转正') > 0) {
+                    $('.ant-modal-body').onclick = function() {
+                        setTimeout(() => {
+                            location.reload();
+                        }, 300)
+                    }
+                    clearInterval(itv);
+                    console.log('success');
+                    pretty_log(data);
+                    if ( setting.stop ) return ;
+                    func(data);
+                    return true;
+                }
+                cnt++;
+            }, 100)
+            }
+
+        function bind(data_func, func) {
+            if (!setting.turn) return ;
+            var data = data_func()
+            $('.ant-btn.ant-btn-primary.ant-btn-lg').onclick = function () {
+                data.params.ansText = cur_answer();
+                func(data.params)
+                setTimeout(() => {
+                    bind(data_func, func);
+                }, 500);
+
+            };
+        }
+
+        function pretty_log(data) {
+            var s = '';
+            for (let i of data['params']['data']) {
+                s += `题目序号：${i['questionKey']} \n答案： ${i['ansText']}\n`
+      }
+            console.log(s);
+            GM_setClipboard(s);
+        }
+
+        function own_get() {
+
+            function q_info() {
+                return {
+                    url: req.info,
+                    params: {
+                        taskId: location.search.replace(/[^0-9]/ig, ""),
+                        taskName: $('h2').innerText,
+                        // questionKey: strings
+                        questionKey: $('form').children[0].innerText.replace(/[^0-9]/ig, "")
+                    }
+                }
+
+            }
+
+            function own_get_btn() {
+                if ($('.own-search')) $('.own-search').remove()
+                var btns = $('.ant-layout-content');
+                var infoBtn = document.createElement('button');
+                infoBtn.textContent = '题目信息';
+                infoBtn.className = 'ant-btn ant-btn-primary ant-btn-lg own-search'
+                infoBtn.setAttribute('style', 'width: 120px;margin-right: 20px;text-align: center;border-radius: 20px;position: fixed;top: 80%;left: -1%;z-index: 99;')
+                insert_after(infoBtn, btns.children[0])
+                infoBtn.onclick = function () {
+                    own_get_api(q_info())
+                }
+
+            }
+
+            function own_get_api(data) {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: filter(data.url),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Referer': GM_info['script']['version'],
+                    },
+                    data: JSON.stringify(data.params),
+                    onload: function (resp) {
+                        var js = JSON.parse(resp.responseText)
+                        // console.log(js);
+                        if (js['code'] === 1000) {
+                            console.log('获取成功');
+                            own_get_board(js)
+                        } else {
+                            console.log('获取失败，错误码', js['code'])
+                            error_info('获取数据失败！')
+                        }
+                    },
+                    onerror: function () {
+                        error_info('获取数据失败！')
+                    }
+                });
+            }
+
+            function own_get_board(data) {
+                if ($('#question-info')) {
+                    $('#question-info').remove()
+                }
+
+                var divinfo = document.createElement('div')
+                divinfo.id = 'question-info'
+                divinfo.setAttribute('style', 'width: 200px;height: 200px;background-color: #9de9bd;position: fixed;top: 5%;right: 20%;z-index: 9;padding: 10px;opacity: 0.7;')
+
+                var table = document.createElement('table')
+                table.setAttribute('style', 'width: 100%;height: 100%;color: black;')
+
+                var tr_ = document.createElement('tr')
+                var th_ = '<th style="text-align: center;height: 20px;width: 35px;">数量</th><th style="text-align: left;width: 160px">文本(点击自动复制)</th>'
+                tr_.innerHTML = th_
+                table.appendChild(tr_)
+
+                var close = document.createElement('span')
+                close.textContent = '×'
+                close.setAttribute('style', 'position: absolute;top: 5px;right: 7px;color: white;width: 20px;height: 20px;cursor: pointer;text-align: center;')
+                close.onclick = function () {
+                    $('#question-info').remove()
+                }
+                divinfo.appendChild(close)
+
+                if (data['data']) {
+                    if (JSON.stringify(data['data']) !== '[]') setting.stop = 1;
+                    for (let i of data['data']) {
+                        var tr = document.createElement('tr')
+                        var td = `<td style="text-align: center">${i.num}</td><td style="text-align: left;font-size: 15px;">`
+            for (let j of i.ansText.split('*')) {
+                if (!j) continue
+                var span = `<span style="display: block;width: 160px;text-overflow: ellipsis;overflow: hidden;">${j}</span>`
+              td += span
+            }
+                        td += '</td>'
+                        tr.innerHTML = td;
+                        table.appendChild(tr)
+                    }
+                    table.onclick = function (e) {
+                        GM_setClipboard(e.path[0].textContent.replace(/单选：/g, '').replace(/填空：/g, ''));
+                    }
+
+                }
+
+                divinfo.appendChild(table)
+
+                var template = $('.task-template-body')
+                template.appendChild(divinfo)
+
+            }
+
+            if (!setting.detail) return;
+
+            own_get_btn();
+        }
+
+    }
+
+    function task_do() {
+
+        setTimeout(() => {
+            var title = $('h2').innerText;
+            setting.type = (title.indexOf('植物') > 0) ? 1 : setting.type;
+            setting.type = (title.indexOf('动物') > 0) ? 2 : setting.type;
+            setting.type = (title.indexOf('ocr') > 0) ? 3 : setting.type;
+            setting.type && baidu();
+            keyboard()
+            bind(is_hole)
+        }, 1000)
+
+        function bind(func) {
+            func()
+            $('.ant-btn.ant-btn-primary.ant-btn-lg').onclick = function () {
+                setTimeout(() => {
+                    bind(func);
+                }, 500);
+
+            };
+
+            $('.ant-btn.skip-btn.ant-btn-primary.ant-btn-lg').onclick = function () {
+                setTimeout(() => {
+                    bind(func);
+                }, 500)
+            }
+
+        }
+        //间距
+        var jianju=1000;
+        var shijian=0;
+        //做题数
+        var num=0;
+        //当前序号qin
+        //上一题序号long
+        //随机数数组
+       var choose=new Array("0","0","0","0","0","0","0","0","0","0");
+        var long=0;
+        //总题数
+        var total=0;
+          function is_hole(data) {
+              //var qin=$('form').children[0].innerText;
+               var qin=($('form').children[0].innerText.replace(/[^0-9]/ig, ""));
+               //qin=qin.substring(23,qin.length);
+              //var i=qin.split("_");
+              //qin=i[1];
+                  if(qin == null || qin == ""){
+                    window.location.reload();
+                  }
+                        if(long==0){
+                            long=qin;
+                        }
+                        if(total>4){
+                            window.location.reload();
+                        }
+                        var left=long-jianju;
+                        var right=parseInt(long)+jianju;
+                        console.log("long="+long+"   left="+left+"   right="+right+"   total="+total);
+
+                        //if (qin>37000)$('.task-template-head').style.backgroundColor = '	#00FF00'
+                        //else document.getElementsByClassName("ant-btn skip-btn ant-btn-primary ant-btn-lg")[0].click();
+                       //if (qin>((long / 10) + 10000)&&Math.abs(1600000 - qin)>10000) {
+                        if (qin>left&&qin<right) {
+                           long=qin;
+                           var index=choose[parseInt(Math.random()*choose.length)];
+                           console.log("index="+index);
+                           //多选
+                           /*document.getElementsByClassName("ant-checkbox-wrapper")[index].click();*/
+                           //单选
+                           document.getElementsByClassName("ant-radio-input")[index].click();
+                           //定时执行
+                            clearTimeout(time2);
+
+                             var time1 = setTimeout(function(){document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click()},shijian);
+                            num++;
+                           total=0;
+                           document.getElementsByClassName("account-number")[0].innerText=num;
+                       }else {
+                           clearTimeout(time1);
+                           console.log("跳过+qin="+qin+"   long="+long);
+                           /*window.location.reload();*/
+                            var time2 = setTimeout(function(){document.getElementsByClassName("ant-btn skip-btn ant-btn-primary ant-btn-lg")[0].click()},0);
+                            total++;
+                       }
+                       /*if (qin>left&&qin<right) {
+                           long=qin;
+                           var index=choose[parseInt(Math.random()*choose.length)];
+                           console.log("index="+index);
+                           //多选
+                           /*document.getElementsByClassName("ant-checkbox-wrapper")[index].click();*/
+                           //单选
+                           /*document.getElementsByClassName("ant-radio-input")[index].click();
+                           //定时执行
+                             var time1 = setTimeout(function(){document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click()},shijian);
+                            num++;
+                           total=0;
+                           document.getElementsByClassName("account-number")[0].innerText=num;
+                       } */
+        }
+
+    }
+
+    function baidu() {
+
+        function baidu_btn() {
+            if ($('.baidu-search')) $('.baidu-search').remove()
+            var btns = $('ant-layout-content');
+            var btn = document.createElement('button');
+            btn.textContent = '一键查询';
+            btn.className = 'ant-btn ant-btn-primary ant-btn-lg baidu-search';
+            btn.setAttribute('style', 'width: 120px;margin-right: 20px;text-align: center;border-radius: 20px;position: fixed;top: 66%;left: -1%;z-index: 99;');
+            insert_after(btn, btns.children[0]);
+            btn.onclick = function () {
+                var inputs = btns.children[0].querySelectorAll("input[type='text']")
+                for (let i of inputs) i.setAttribute('autocomplete', 'off')
+                var imgUrl = btns.children[0].querySelector('img').src
+                baidu_api(imgUrl)
+            };
+        }
+
+        function baidu_api(iurl) {
+            if (!iurl) return 0
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: filter(req.baidu),
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Referer': 'https://ai.baidu.com/',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36'
+                },
+                data: 'image&type=' + (type)[setting.type] + '&show=true&image_url=' + iurl,
+                onload: function (resp) {
+                    var js = JSON.parse(resp.responseText)
+                    if (js['errno'] === 0) {
+                        baidu_board(js)
+                    } else {
+                        console.log('发生错误，错误码：', js['errno'])
+                        error_info('搜索失败！重新试试？')
+                    }
+                },
+                onerror: function () {
+                    error_info('搜索失败！重新试试？')
+                }
+            });
+        }
+
+        function baidu_board(data) {
+            if ($('#reco-js-result-bar')) {
+                $('#reco-js-result-bar').remove()
+            }
+            var result = document.createElement('div')
+            result.id = 'reco-js-result-bar'
+            result.setAttribute('style', 'background-color: #0073EB; width: 250px;height: 250px;position: fixed;top: 30%;left: 0px;z-index: 999;')
+
+            var tip = document.createElement('span')
+            tip.setAttribute('style', 'position: absolute;color: white;top: 2px;height: 20px;line-height: 20px;padding: 0 0 0 25%;')
+            tip.textContent = '点击文字自动复制'
+
+            var close = document.createElement('span')
+            close.textContent = '×'
+            close.setAttribute('style', 'position: absolute;top: 5px;right: 7px;color: white;width: 20px;height: 20px;cursor: pointer;text-align: center;')
+            close.onclick = function () {
+                var i = 0
+                var bar = document.getElementById('reco-js-result-bar')
+                var r_in = setInterval(() => {
+                    if (i < -250) {
+                        clearInterval(r_in)
+                        bar.remove()
+                    }
+                    bar.style.left = i + 'px'
+                    i -= 5;
+                }, 10)
+                }
+
+            result.appendChild(tip);
+            result.appendChild(close);
+
+            var table = document.createElement('table');
+            table.setAttribute('style', 'margin: 0;padding: 20px;width: 100%;height: 100%;border-collapse: separate;')
+
+            for (let i of data['data']['result']) {
+                var tr = document.createElement('tr')
+                tr.setAttribute('style', 'width: 230px;height: 20px;padding: 10px;')
+                var th = `<th style="width: 40%;text-align: left;height: 20px;color: white;font-size: 15px;font-weight: lighter;">${i.name}</th>
+  <th style="width: 40%;height: 20px;color: white;font-size: 15px;font-weight: lighter;"><div style="width: ${i.score * 100}%;height: 3px;background-color: white;"></div></th>
+  <th style="width: 20%;text-align: right;height: 20px;color: white;font-size: 15px;font-weight: lighter;">${i['score'].toFixed(3)}</th>`
+
+        tr.innerHTML = th
+          table.appendChild(tr)
+      }
+
+        result.appendChild(table)
+
+        var template = $('.task-template-body')
+        template.appendChild(result)
+        table.onclick = function (e) {
+            GM_setClipboard(e.path[0].textContent);
+        }
+    }
+
+      baidu_btn();
+  }
+
+    function valve() {
+        zero_state();
+        var cur_url = location.href;
+        if (cur_url.indexOf('/user') > 0) {
+            // 积分详情界面
+            setting.profile = 1;
+            if (setting.profile) user_profile();
+        }else if (cur_url.indexOf('/task/t') > 0) {
+            // 转正界面
+            setting.turn = 1;
+            if (setting.turn) turn_position();
+        }else if (cur_url.indexOf('/task/f') > 0) {
+            // 正式任务
+            setting.official = 1;
+            if (setting.official) task_do();
+        }else {
+            zero_state();
+        }
+    }
+
+    function zero_state() {
+        setting.type = 0;
+        setting.turn = 0;
+        setting.profile = 0;
+        setting.official = 0;
+    }
+
+    function cur_answer() {
+        function ans_filter(text) {
+            return text.replace(/（.*）/ig, '').replace(/\(.*\)/ig, '');
+        }
+        var radio = '';
+        var tmp = '';
+        for (let i of document.querySelectorAll("input[type='radio']:checked")) {
+            tmp = `*单选：选择：${ans_filter(i.parentNode.parentNode.innerText)}；`;
+            if (tmp.length > 20) tmp = `*单选：选择第${(parseInt(i.value) + 1)}个；`;
+            radio += tmp;
+        }
+        for (let i of document.querySelectorAll("input[type='checkbox']:checked")) {
+            tmp =  `*复选：选择：${ans_filter(i.parentNode.parentNode.innerText)}；`;
+            if (tmp.length > 20) tmp = `*复选：选择第${(parseInt(i.value) + 1)}个；`;
+            radio += tmp;
+        }
+
+        var text = '';
+        for (let i of document.querySelectorAll("input[type='text']")) {
+            if (i.value !== "") text += `*填空： ${i.value}`;  // 不能26%代替，服务器出错
+        }
+        if (!(radio + text)) {
+            error_info('获取答案文本失败')
+        }
+        return radio + text;
+    }
+
+    function keyboard() {
+        var keyDiv = document.createElement('div')
+        keyDiv.setAttribute('style', 'width: 200px;height: 50px;position: fixed;top: 70%;background-color: red;border-radius: 10px;left: -185px;')
+        keyDiv.onmouseover = function() {
+            keyDiv.setAttribute('style', 'width: 200px;height: 50px;position: fixed;top: 70%;background-color: red;border-radius: 10px;left: 0%;')
+        }
+        keyDiv.onmouseleave = function() {
+            keyDiv.setAttribute('style', 'width: 200px;height: 50px;position: fixed;top: 70%;background-color: red;border-radius: 10px;left: -185px;')
+        }
+        keyDiv.innerHTML = `<button style="width: 50px;height: 30px;margin: 10px 5px;" id="k-2">2键</button>
+<button style="width: 50px;height: 30px;margin: 10px 5px;" id="k-3">3键</button>
+<button style="width: 50px;height: 30px;margin: 10px 5px;" id="k-4">4键</button>`
+    $('.ant-layout-content').appendChild(keyDiv)
+      $('#k-2').onclick = function () {
+          document.onkeydown=function(e){
+              if(e && e.keyCode === 37){ // 按 Left
+                  document.getElementsByClassName("ant-radio-input")[0].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+              }
+              else if(e && e.keyCode === 40){ // 按 down
+                  document.getElementsByClassName("ant-radio-input")[1].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+              }
+              else if(e && e.keyCode === 39){ // right
+                  document.getElementsByClassName("ant-btn skip-btn ant-btn-primary ant-btn-lg")[0].click();
+              }
+          };
+          tips(2);
+      }
+      $('#k-3').onclick = function() {
+          document.onkeydown = function(e){
+              if(e && e.keyCode===65){ // a
+                  document.getElementsByClassName("ant-radio-input")[0].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('1')
+              }
+              else if(e && e.keyCode===83){ // s
+                  document.getElementsByClassName("ant-radio-input")[1].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('2')
+              }
+              else if(e && e.keyCode===68){ // d
+                  document.getElementsByClassName("ant-radio-input")[2].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('3')
+              }
+              else if(e && e.keyCode===32){ // kongge
+                  document.getElementsByClassName("ant-btn skip-btn ant-btn-primary ant-btn-lg")[0].click();
+
+              }
+          }
+          tips(3);
+      }
+      $('#k-4').onclick = function () {
+          document.onkeydown = function (e) {
+              if (e && e.keyCode === 65) { // a
+                  document.getElementsByClassName("ant-radio-input")[0].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('1')
+              } else if (e && e.keyCode === 83) { // s
+                  document.getElementsByClassName("ant-radio-input")[1].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('2')
+              } else if (e && e.keyCode === 32) { // kongge
+                  document.getElementsByClassName("ant-btn skip-btn ant-btn-primary ant-btn-lg")[0].click();
+              } else if (e && e.keyCode === 68) { // d
+                  document.getElementsByClassName("ant-radio-input")[2].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('3')
+              } else if (e && e.keyCode === 70) { // f
+                  document.getElementsByClassName("ant-radio-input")[3].click();
+                  document.getElementsByClassName("ant-btn ant-btn-primary ant-btn-lg")[0].click();
+                  console.log('4')
+              }
+          }
+          tips(4);
+      }
+      function tips(num) {
+          if ($('.keyboard-tip')) $('.keyboard-tip').remove()
+          var text2 = '<div style="margin-left: 20%;margin-top: 15%;font-size: 30px;"><h3>←-选第一个</h3><h3>↓-选第二个</h3><h3>→-跳过</h3></div>'
+          var text3 = '<div style="margin-left: 20%;margin-top: 15%;font-size: 30px"><h3>A-选第一个</h3><h3>S-选第二个</h3><h3>D-选第三个</h3><h3>SPACE-跳过</h3></div>'
+          var text4 = '<div style="margin-left: 20%;margin-top: 15%;font-size: 30px"><h3>A-选第一个</h3><h3>S-选第二个</h3><h3>D-选第三个</h3><h3>F-选第四个</h3><h3>SPACE-跳过</h3></div>';
+          var tipDiv = document.createElement('div')
+          tipDiv.className = 'keyboard-tip'
+          tipDiv.setAttribute('style', 'width:100%;height: 100%; margin: 0;padding: 0;background-color: #9de9bd;opacity: 0.7;z-index: 999;position: fixed;top: 0;left: 0')
+          tipDiv.innerHTML = (num === 2 ? text2 : num === 3 ? text3 : text4) + '<span style="margin-left: 20%;font-size: 20px;">！按键已生效，双击任意处关闭提示</span>'
+          tipDiv.ondblclick = function () {
+              tipDiv.remove();
+          }
+          document.body.appendChild(tipDiv)
+      }
+  }
+
+    function error_info(text, state) {
+        var erdiv = document.createElement('div')
+        erdiv.id = 'error-info'
+        erdiv.setAttribute('style', 'width: 200px;height: 30px;background-color: #eb4e4e;position: fixed;' +
+                           'z-index: 9;top: 15%;left: 1%;border-radius: 5px;font-size: 17px;text-align: center;color: white;')
+        if (state) erdiv.style.backgroundColor = '#2cb044';
+        erdiv.textContent = text
+        var opa = 3
+        var opacityInterval = setInterval(() => {
+            erdiv.style.opacity = opa
+            opa -= 0.01
+            if (opa < 0) {
+                $('#error-info').remove()
+                clearInterval(opacityInterval)
+            }
+        }, 10)
+        document.body.appendChild(erdiv)
+    }
+
+    function $(dom) {
+        return document.querySelector(dom)
+
+    }
+
+    function insert_after(newElement, targetElement) {
+        var parent = targetElement.parentNode;
+        if (parent.lastChild === targetElement) {
+            parent.appendChild(newElement);
+        } else {
+            parent.insertBefore(newElement, targetElement.nextSibling);
+        }
+    }
+})();
+s
